@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Savings — Misubank{% endblock %}
+
+{% block content %}
+<h1>Savings Tracker</h1>
+
+<div class="savings-card">
+    <div class="savings-label">Estimated Monthly Savings</div>
+    <div class="savings-amount">${{ "%.2f" | format(monthly_total) }}</div>
+    <div class="savings-label" style="margin-top: 0.5rem;">
+        from {{ cancelled | length }} cancelled subscription{{ 's' if cancelled | length != 1 }}
+    </div>
+</div>
+
+{% if cancelled %}
+<div class="card" style="overflow-x: auto; padding: 0;">
+<table>
+    <thead>
+        <tr>
+            <th>Description</th>
+            <th>Monthly Amount</th>
+            <th>Account</th>
+            <th>Cancelled</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for txn in cancelled %}
+        <tr>
+            <td>{{ txn.description }}</td>
+            <td class="amount-negative">
+                ${{ "%.2f" | format((txn.monthly_amount or txn.amount) | float | abs) }}/mo
+            </td>
+            <td style="color: var(--text-muted);">{{ txn.account_name }}</td>
+            <td style="color: var(--text-muted); font-size: 0.8rem;">{{ txn.cancelled_at or 'Unknown' }}</td>
+            <td>
+                <form hx-post="/transaction/{{ txn.id }}/uncancel" hx-target="closest tr" hx-swap="outerHTML">
+                    <button type="submit" class="btn-sm btn-outline">Undo</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+
+<div class="card" style="margin-top: 1rem;">
+    <h2>Projected Annual Savings</h2>
+    <p style="font-size: 1.5rem; font-weight: 700; color: var(--green);">
+        ${{ "%.2f" | format(monthly_total * 12) }}
+    </p>
+</div>
+{% else %}
+<div class="empty-state">
+    <p>No cancelled subscriptions yet.</p>
+    <p style="margin-top: 0.5rem;">Mark subscriptions as cancelled from the Transactions page to start tracking savings.</p>
+</div>
+{% endif %}
+{% endblock %}

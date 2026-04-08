@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Spending Report — Misubank{% endblock %}
+
+{% block content %}
+<h1>Spending by Tag</h1>
+
+{% if rows %}
+<div class="card" style="padding: 0;">
+<table>
+    <thead>
+        <tr>
+            <th>Tag</th>
+            <th>Transactions</th>
+            <th>Total Spent</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in rows %}
+        <tr>
+            <td>
+                <span class="tag" style="border-color: {{ row.color }};">{{ row.tag_name }}</span>
+            </td>
+            <td>{{ row.count }}</td>
+            <td class="amount-negative">${{ "%.2f" | format(row.total | abs) }}</td>
+        </tr>
+        {% endfor %}
+        {% if untagged and untagged.count %}
+        <tr style="border-top: 2px solid var(--border);">
+            <td style="color: var(--text-muted); font-style: italic;">Untagged</td>
+            <td>{{ untagged.count }}</td>
+            <td class="amount-negative">${{ "%.2f" | format(untagged.total | abs) }}</td>
+        </tr>
+        {% endif %}
+    </tbody>
+</table>
+</div>
+{% else %}
+<div class="empty-state">
+    <p>No tagged spending data yet.</p>
+    <p style="margin-top: 0.5rem;">Tag your transactions to see spending breakdowns.</p>
+</div>
+{% endif %}
+{% endblock %}

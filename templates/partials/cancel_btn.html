@@ -1,0 +1,18 @@
+{% if txn.cancelled %}
+<form hx-post="/transaction/{{ txn.id }}/uncancel" hx-target="#cancel-{{ txn.id | replace('/', '-') }}" hx-swap="innerHTML" style="display:inline;">
+    <button type="submit" class="btn-sm btn-green">Cancelled</button>
+</form>
+{% else %}
+<span style="position: relative; display: inline-block;">
+    <button class="btn-sm btn-outline cancel-toggle"
+            onclick="this.style.visibility='hidden'; this.nextElementSibling.style.display='inline-flex';">
+        Cancel
+    </button>
+    <form hx-post="/transaction/{{ txn.id }}/cancel" hx-target="#cancel-{{ txn.id | replace('/', '-') }}" hx-swap="innerHTML"
+          style="display: none; position: absolute; right: 0; top: 50%; transform: translateY(-50%); z-index: 10; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.25rem; white-space: nowrap;"
+          class="inline-form">
+        <input type="text" name="monthly_amount" placeholder="${{ txn.amount | float | abs }}/mo" style="width: 80px; font-size: 0.7rem;">
+        <button type="submit" class="btn-sm btn-danger">Confirm</button>
+    </form>
+</span>
+{% endif %}

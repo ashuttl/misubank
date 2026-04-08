@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block title %}Transactions — Misubank{% endblock %}
+
+{% block content %}
+<h1>Transactions</h1>
+
+<div class="filters">
+    <div class="pill-nav">
+        <a href="/?show=all&q={{ filters.q or '' }}&account={{ filters.account or '' }}&tag={{ filters.tag or '' }}"
+           class="{{ 'active' if filters.show == 'all' }}">All</a>
+        <a href="/?show=subscriptions&q={{ filters.q or '' }}&account={{ filters.account or '' }}&tag={{ filters.tag or '' }}"
+           class="{{ 'active' if filters.show == 'subscriptions' }}">Subscriptions</a>
+        <a href="/?show=cancelled&q={{ filters.q or '' }}&account={{ filters.account or '' }}&tag={{ filters.tag or '' }}"
+           class="{{ 'active' if filters.show == 'cancelled' }}">Cancelled</a>
+    </div>
+
+    <form method="get" class="filters" style="margin-bottom:0">
+        <input type="hidden" name="show" value="{{ filters.show }}">
+        <input type="text" name="q" value="{{ filters.q or '' }}" placeholder="Search descriptions...">
+        <select name="account">
+            <option value="">All accounts</option>
+            {% for acct in accounts %}
+            <option value="{{ acct.id }}" {{ 'selected' if filters.account == acct.id }}>{{ acct.name }}</option>
+            {% endfor %}
+        </select>
+        <select name="tag">
+            <option value="">All tags</option>
+            {% for tag in tags %}
+            <option value="{{ tag.name }}" {{ 'selected' if filters.tag == tag.name }}>{{ tag.name }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="btn-sm">Filter</button>
+        {% if filters.q or filters.account or filters.tag or filters.show != 'all' %}
+        <a href="/" class="btn-sm btn-outline">Clear</a>
+        {% endif %}
+    </form>
+</div>
+
+{% if transactions %}
+<div class="card" style="overflow-x: auto; padding: 0;">
+<table>
+    <thead>
+        <tr>
+            <th class="sortable" data-sort="date" data-type="number" style="cursor:pointer;">Date <span class="sort-arrow">▼</span></th>
+            <th>Description</th>
+            <th class="sortable" data-sort="amount" data-type="number" style="cursor:pointer;">Amount <span class="sort-arrow"></span></th>
+            <th>Account</th>
+            <th>Tags</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for txn in transactions %}
+        <tr id="txn-{{ txn.id | replace('/', '-') }}">
+            <td style="white-space: nowrap;" data-sort-value="{{ txn.posted }}">{{ txn.posted | date }}</td>
+            <td>
+                {{ txn.description }}
+                {% if txn.is_subscription %}
+                <span class="subscription-badge">subscription</span>
+                {% endif %}
+                {% if txn.cancelled %}
+                <span class="cancelled-badge">cancelled</span>
+                {% endif %}
+                {% if txn.pending %}
+                <span class="tag" style="border-color: var(--yellow);">pending</span>
+                {% endif %}
+                {% if txn.note %}
+                <div style="color: var(--text-muted); font-size: 0.75rem; margin-top: 0.2rem;">
+                    Note: {{ txn.note }}
+                </div>
+                {% endif %}
+            </td>
+            <td class="{{ 'amount-negative' if txn.amount | float < 0 else 'amount-positive' }}" style="white-space: nowrap;" data-sort-value="{{ txn.amount }}">
+                {{ txn.amount | amount }}
+            </td>
+            <td style="color: var(--text-muted); font-size: 0.8rem;">{{ txn.account_name }}</td>
+            <td>
+                <div id="tags-{{ txn.id | replace('/', '-') }}">
+                    {% set txn_tags = [] %}
+                    {% if txn.tag_names %}
+                        {% for tag_name in txn.tag_names.split(', ') %}
+                        <span class="tag">{{ tag_name }}</span>
+                        {% endfor %}
+                    {% endif %}
+                    <form class="inline-form" hx-post="/transaction/{{ txn.id }}/tag" hx-target="#tags-{{ txn.id | replace('/', '-') }}" hx-swap="innerHTML">
+                        <input type="text" name="tag_name" placeholder="+ tag" style="width: 70px; font-size: 0.7rem; padding: 0.1rem 0.3rem;" list="taglist">
+                    </form>
+                </div>
+            </td>
+            <td style="white-space: nowrap;">
+                <div style="display: flex; gap: 0.25rem; flex-wrap: wrap;">
+                    <!-- Note toggle -->
+                    <button class="btn-sm btn-outline"
+                            onclick="let el=document.getElementById('note-{{ loop.index }}'); el.style.display = el.style.display === 'none' ? 'flex' : 'none';">
+                        Note
+                    </button>
+
+                    <!-- Subscription toggle -->
+                    <span id="sub-{{ txn.id | replace('/', '-') }}">
+                        {% include "partials/subscription_btn.html" %}
+                    </span>
+
+                    <!-- Cancel -->
+                    <span id="cancel-{{ txn.id | replace('/', '-') }}">
+                        {% include "partials/cancel_btn.html" %}
+                    </span>
+                </div>
+
+                <!-- Expandable note form -->
+                <div id="note-{{ loop.index }}" style="display: none; margin-top: 0.4rem;" class="detail-row">
+                    <form hx-post="/transaction/{{ txn.id }}/note" hx-swap="none" class="inline-form">
+                        <input type="text" name="note" value="{{ txn.note or '' }}" placeholder="Add a note..." style="width: 150px; font-size: 0.75rem;">
+                        <button type="submit" class="btn-sm">Save</button>
+                    </form>
+                </div>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+
+<datalist id="taglist">
+    {% for tag in tags %}
+    <option value="{{ tag.name }}">
+    {% endfor %}
+</datalist>
+
+<p style="color: var(--text-muted); font-size: 0.8rem;">{{ transactions | length }} transaction{{ 's' if transactions | length != 1 }}</p>
+
+<script>
+document.querySelectorAll('th.sortable').forEach(th => {
+    th.addEventListener('click', () => {
+        const table = th.closest('table');
+        const tbody = table.querySelector('tbody');
+        const colIdx = Array.from(th.parentNode.children).indexOf(th);
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+
+        // Toggle direction
+        const wasAsc = th.dataset.dir === 'asc';
+        const asc = !wasAsc;
+        th.dataset.dir = asc ? 'asc' : 'desc';
+
+        // Clear other arrows
+        table.querySelectorAll('th.sortable .sort-arrow').forEach(a => a.textContent = '');
+        th.querySelector('.sort-arrow').textContent = asc ? '▲' : '▼';
+
+        rows.sort((a, b) => {
+            const av = parseFloat(a.children[colIdx].dataset.sortValue);
+            const bv = parseFloat(b.children[colIdx].dataset.sortValue);
+            return asc ? av - bv : bv - av;
+        });
+
+        rows.forEach(r => tbody.appendChild(r));
+    });
+});
+</script>
+
+{% else %}
+<div class="empty-state">
+    <p>No transactions yet.</p>
+    <p style="margin-top: 0.5rem;">Click <strong>Sync Transactions</strong> to fetch from your bank.</p>
+</div>
+{% endif %}
+{% endblock %}

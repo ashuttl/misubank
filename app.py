@@ -1,0 +1,302 @@
+"""Misubank — local web app for reviewing transactions and tracking savings."""
+
+import os
+from datetime import datetime, timezone
+
+from dotenv import load_dotenv
+from flask import Flask, g, jsonify, redirect, render_template, request, url_for
+
+from db import get_db, init_db
+from simplefin import sync_transactions
+
+load_dotenv()
+
+app = Flask(__name__)
+app.secret_key = os.urandom(24)
+
+SIMPLEFIN_ACCESS_URL = os.environ.get("SIMPLEFIN_ACCESS_URL", "").strip()
+
+
+@app.before_request
+def before_request():
+    g.db = get_db()
+
+
+@app.teardown_appcontext
+def close_db(exc):
+    db = g.pop("db", None)
+    if db is not None:
+        db.close()
+
+
+# --- Pages ---
+
+
+@app.route("/")
+def index():
+    """Main transaction list page."""
+    tag_filter = request.args.get("tag")
+    account_filter = request.args.get("account")
+    search = request.args.get("q", "").strip()
+    show = request.args.get("show", "all")  # all, subscriptions, cancelled
+
+    query = """
+        SELECT t.*, a.name as account_name,
+               GROUP_CONCAT(tg.name, ', ') as tag_names
+        FROM transactions t
+        JOIN accounts a ON t.account_id = a.id
+        LEFT JOIN transaction_tags tt ON t.id = tt.transaction_id
+        LEFT JOIN tags tg ON tt.tag_id = tg.id
+    """
+    conditions = []
+    params = []
+
+    if tag_filter:
+        conditions.append("tg.name = ?")
+        params.append(tag_filter)
+    if account_filter:
+        conditions.append("t.account_id = ?")
+        params.append(account_filter)
+    if search:
+        conditions.append("t.description LIKE ?")
+        params.append(f"%{search}%")
+    if show == "subscriptions":
+        conditions.append("t.is_subscription = 1")
+    elif show == "cancelled":
+        conditions.append("t.cancelled = 1")
+
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+
+    query += " GROUP BY t.id ORDER BY t.posted DESC"
+
+    transactions = g.db.execute(query, params).fetchall()
+
+    accounts = g.db.execute("SELECT id, name FROM accounts ORDER BY name").fetchall()
+    tags = g.db.execute("SELECT id, name, color FROM tags ORDER BY name").fetchall()
+
+    return render_template(
+        "index.html",
+        transactions=transactions,
+        accounts=accounts,
+        tags=tags,
+        filters={"tag": tag_filter, "account": account_filter, "q": search, "show": show},
+    )
+
+
+@app.route("/savings")
+def savings():
+    """Savings dashboard — shows cancelled subscriptions and monthly total."""
+    cancelled = g.db.execute("""
+        SELECT t.*, a.name as account_name
+        FROM transactions t
+        JOIN accounts a ON t.account_id = a.id
+        WHERE t.cancelled = 1
+        ORDER BY t.cancelled_at DESC
+    """).fetchall()
+
+    monthly_total = sum(abs(float(t["monthly_amount"] or t["amount"])) for t in cancelled)
+
+    return render_template("savings.html", cancelled=cancelled, monthly_total=monthly_total)
+
+
+@app.route("/tags")
+def tags_page():
+    """Tag management page."""
+    tags = g.db.execute("""
+        SELECT t.*, COUNT(tt.transaction_id) as txn_count
+        FROM tags t
+        LEFT JOIN transaction_tags tt ON t.id = tt.tag_id
+        GROUP BY t.id
+        ORDER BY t.name
+    """).fetchall()
+    return render_template("tags.html", tags=tags)
+
+
+# --- API / htmx endpoints ---
+
+
+@app.route("/sync", methods=["POST"])
+def sync():
+    """Trigger a sync from SimpleFIN."""
+    if not SIMPLEFIN_ACCESS_URL:
+        return jsonify({"error": "SIMPLEFIN_ACCESS_URL not set"}), 500
+    days = int(request.form.get("days", 30))
+    result = sync_transactions(SIMPLEFIN_ACCESS_URL, days_back=days)
+    # Redirect back to the transactions page after sync
+    return redirect(url_for("index"))
+
+
+@app.route("/transaction/<path:txn_id>/note", methods=["POST"])
+def update_note(txn_id):
+    """Update a transaction's note."""
+    note = request.form.get("note", "").strip()
+    g.db.execute("UPDATE transactions SET note = ? WHERE id = ?", (note, txn_id))
+    g.db.commit()
+    if request.headers.get("HX-Request"):
+        return render_template("partials/note_form.html", txn={"id": txn_id, "note": note})
+    return redirect(url_for("index"))
+
+
+@app.route("/transaction/<path:txn_id>/subscription", methods=["POST"])
+def toggle_subscription(txn_id):
+    """Toggle subscription flag on a transaction."""
+    txn = g.db.execute("SELECT is_subscription FROM transactions WHERE id = ?", (txn_id,)).fetchone()
+    new_val = 0 if txn["is_subscription"] else 1
+    g.db.execute("UPDATE transactions SET is_subscription = ? WHERE id = ?", (new_val, txn_id))
+    g.db.commit()
+    if request.headers.get("HX-Request"):
+        return render_template("partials/subscription_btn.html", txn={"id": txn_id, "is_subscription": new_val})
+    return redirect(url_for("index"))
+
+
+@app.route("/transaction/<path:txn_id>/cancel", methods=["POST"])
+def mark_cancelled(txn_id):
+    """Mark a subscription as cancelled and record the monthly savings."""
+    monthly_amount = request.form.get("monthly_amount", "").strip()
+    txn = g.db.execute("SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
+
+    if not monthly_amount:
+        monthly_amount = txn["amount"]
+
+    g.db.execute("""
+        UPDATE transactions
+        SET cancelled = 1, cancelled_at = CURRENT_TIMESTAMP,
+            monthly_amount = ?, is_subscription = 1
+        WHERE id = ?
+    """, (monthly_amount, txn_id))
+    g.db.commit()
+
+    if request.headers.get("HX-Request"):
+        updated = g.db.execute("SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
+        return render_template("partials/cancel_btn.html", txn=updated)
+    return redirect(url_for("index"))
+
+
+@app.route("/transaction/<path:txn_id>/uncancel", methods=["POST"])
+def uncancel(txn_id):
+    """Undo cancellation."""
+    g.db.execute("""
+        UPDATE transactions SET cancelled = 0, cancelled_at = NULL, monthly_amount = NULL WHERE id = ?
+    """, (txn_id,))
+    g.db.commit()
+    if request.headers.get("HX-Request"):
+        updated = g.db.execute("SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
+        return render_template("partials/cancel_btn.html", txn=updated)
+    return redirect(url_for("index"))
+
+
+@app.route("/transaction/<path:txn_id>/tag", methods=["POST"])
+def add_tag(txn_id):
+    """Add a tag to a transaction."""
+    tag_name = request.form.get("tag_name", "").strip()
+    if not tag_name:
+        return redirect(url_for("index"))
+
+    # Create tag if it doesn't exist
+    g.db.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (tag_name,))
+    tag = g.db.execute("SELECT id FROM tags WHERE name = ?", (tag_name,)).fetchone()
+
+    g.db.execute("INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id) VALUES (?, ?)",
+                 (txn_id, tag["id"]))
+    g.db.commit()
+
+    if request.headers.get("HX-Request"):
+        tags = g.db.execute("""
+            SELECT tg.* FROM tags tg
+            JOIN transaction_tags tt ON tg.id = tt.tag_id
+            WHERE tt.transaction_id = ?
+        """, (txn_id,)).fetchall()
+        all_tags = g.db.execute("SELECT name FROM tags ORDER BY name").fetchall()
+        return render_template("partials/tags.html", txn_id=txn_id, tags=tags, all_tags=all_tags)
+    return redirect(url_for("index"))
+
+
+@app.route("/transaction/<path:txn_id>/tag/<int:tag_id>/remove", methods=["POST"])
+def remove_tag(txn_id, tag_id):
+    """Remove a tag from a transaction."""
+    g.db.execute("DELETE FROM transaction_tags WHERE transaction_id = ? AND tag_id = ?",
+                 (txn_id, tag_id))
+    g.db.commit()
+
+    if request.headers.get("HX-Request"):
+        tags = g.db.execute("""
+            SELECT tg.* FROM tags tg
+            JOIN transaction_tags tt ON tg.id = tt.tag_id
+            WHERE tt.transaction_id = ?
+        """, (txn_id,)).fetchall()
+        all_tags = g.db.execute("SELECT name FROM tags ORDER BY name").fetchall()
+        return render_template("partials/tags.html", txn_id=txn_id, tags=tags, all_tags=all_tags)
+    return redirect(url_for("index"))
+
+
+@app.route("/tags/create", methods=["POST"])
+def create_tag():
+    """Create a new tag."""
+    name = request.form.get("name", "").strip()
+    color = request.form.get("color", "#6b7280").strip()
+    if name:
+        g.db.execute("INSERT OR IGNORE INTO tags (name, color) VALUES (?, ?)", (name, color))
+        g.db.commit()
+    return redirect(url_for("tags_page"))
+
+
+@app.route("/tags/<int:tag_id>/delete", methods=["POST"])
+def delete_tag(tag_id):
+    """Delete a tag."""
+    g.db.execute("DELETE FROM transaction_tags WHERE tag_id = ?", (tag_id,))
+    g.db.execute("DELETE FROM tags WHERE id = ?", (tag_id,))
+    g.db.commit()
+    return redirect(url_for("tags_page"))
+
+
+@app.route("/report")
+def report():
+    """Spending report grouped by tag."""
+    rows = g.db.execute("""
+        SELECT tg.name as tag_name, tg.color,
+               COUNT(*) as count,
+               SUM(CAST(t.amount AS REAL)) as total
+        FROM transactions t
+        JOIN transaction_tags tt ON t.id = tt.transaction_id
+        JOIN tags tg ON tt.tag_id = tg.id
+        WHERE t.amount < 0
+        GROUP BY tg.id
+        ORDER BY total ASC
+    """).fetchall()
+
+    untagged = g.db.execute("""
+        SELECT COUNT(*) as count, SUM(CAST(t.amount AS REAL)) as total
+        FROM transactions t
+        LEFT JOIN transaction_tags tt ON t.id = tt.transaction_id
+        WHERE tt.transaction_id IS NULL AND t.amount < 0
+    """).fetchone()
+
+    return render_template("report.html", rows=rows, untagged=untagged)
+
+
+def format_date(epoch):
+    """Template filter: format unix timestamp as human-readable date."""
+    if not epoch:
+        return "Pending"
+    return datetime.fromtimestamp(epoch, tz=timezone.utc).strftime("%b %d, %Y")
+
+
+def format_amount(amount_str):
+    """Template filter: format amount string as currency."""
+    try:
+        val = float(amount_str)
+        if val < 0:
+            return f"-${abs(val):,.2f}"
+        return f"${val:,.2f}"
+    except (ValueError, TypeError):
+        return amount_str
+
+
+app.jinja_env.filters["date"] = format_date
+app.jinja_env.filters["amount"] = format_amount
+
+
+if __name__ == "__main__":
+    init_db()
+    app.run(debug=True, port=5050)

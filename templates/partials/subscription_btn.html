@@ -1,0 +1,9 @@
+{% if txn.is_subscription %}
+<form hx-post="/transaction/{{ txn.id }}/subscription" hx-target="#sub-{{ txn.id | replace('/', '-') }}" hx-swap="innerHTML" style="display:inline;">
+    <button type="submit" class="btn-sm" style="background: var(--yellow); color: var(--bg);">Subscription</button>
+</form>
+{% else %}
+<form hx-post="/transaction/{{ txn.id }}/subscription" hx-target="#sub-{{ txn.id | replace('/', '-') }}" hx-swap="innerHTML" style="display:inline;">
+    <button type="submit" class="btn-sm btn-outline">Sub?</button>
+</form>
+{% endif %}

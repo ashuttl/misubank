@@ -1,0 +1,10 @@
+{% for tag in tags %}
+<span class="tag">
+    {{ tag.name }}
+    <span class="remove" hx-post="/transaction/{{ txn_id }}/tag/{{ tag.id }}/remove"
+          hx-target="closest td > div" hx-swap="innerHTML">x</span>
+</span>
+{% endfor %}
+<form class="inline-form" hx-post="/transaction/{{ txn_id }}/tag" hx-target="closest td > div" hx-swap="innerHTML">
+    <input type="text" name="tag_name" placeholder="+ tag" style="width: 70px; font-size: 0.7rem; padding: 0.1rem 0.3rem;" list="taglist">
+</form>

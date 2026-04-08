@@ -1,0 +1,4 @@
+<form hx-post="/transaction/{{ txn.id }}/note" hx-swap="none" class="inline-form">
+    <input type="text" name="note" value="{{ txn.note or '' }}" placeholder="Add a note..." style="width: 150px; font-size: 0.75rem;">
+    <button type="submit" class="btn-sm">Save</button>
+</form>

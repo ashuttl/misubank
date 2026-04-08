@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Tags — Misubank{% endblock %}
+
+{% block content %}
+<h1>Manage Tags</h1>
+
+<div class="card">
+    <h2>Create Tag</h2>
+    <form method="post" action="/tags/create" class="filters" style="margin-bottom: 0;">
+        <input type="text" name="name" placeholder="Tag name" required>
+        <input type="color" name="color" value="#818cf8" style="padding: 0.2rem; width: 40px; height: 32px;">
+        <button type="submit">Create</button>
+    </form>
+</div>
+
+{% if tags %}
+<div class="card" style="padding: 0;">
+<table>
+    <thead>
+        <tr>
+            <th>Tag</th>
+            <th>Transactions</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for tag in tags %}
+        <tr>
+            <td>
+                <span class="tag" style="border-color: {{ tag.color }}; color: {{ tag.color }};">{{ tag.name }}</span>
+            </td>
+            <td>{{ tag.txn_count }}</td>
+            <td>
+                <form method="post" action="/tags/{{ tag.id }}/delete" style="display: inline;"
+                      onsubmit="return confirm('Delete tag \'{{ tag.name }}\'?')">
+                    <button type="submit" class="btn-sm btn-danger">Delete</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+{% else %}
+<div class="empty-state">
+    <p>No tags yet. Create one above to start organizing transactions.</p>
+</div>
+{% endif %}
+{% endblock %}
