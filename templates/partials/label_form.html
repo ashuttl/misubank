@@ -1,0 +1,54 @@
+{% if txn.is_subscription %}
+<span class="subscription-badge">subscription</span>
+{% endif %}
+{% if txn.cancelled %}
+<span class="cancelled-badge">cancelled</span>
+{% endif %}
+{% if txn.pending %}
+<span class="tag" style="border-color: var(--yellow);">pending</span>
+{% endif %}
+{% if txn.label %}
+<div class="editable-display" onclick="this.style.display='none'; this.nextElementSibling.style.display='block';" title="Click to edit">
+    <strong>{{ txn.label }}</strong>
+    <div style="color: var(--text-muted); font-size: 0.75rem; margin-top: 0.1rem;">{{ txn.description }}</div>
+</div>
+<div class="editable-form" style="display: none;">
+    <div style="color: var(--text-muted); font-size: 0.75rem; margin-bottom: 0.2rem;">{{ txn.description }}</div>
+    <form class="inline-form"
+          hx-post="/transaction/{{ txn.id }}/label"
+          hx-target="#label-{{ txn.id | replace('/', '-') }}"
+          hx-swap="innerHTML">
+        <input type="text" name="label" value="{{ txn.label or '' }}" placeholder="Relabel..."
+               style="width: 140px; font-size: 0.75rem; padding: 0.15rem 0.3rem;">
+        <button type="submit" class="btn-sm btn-outline" style="font-size: 0.7rem;">Set</button>
+    </form>
+</div>
+{% else %}
+<div class="editable-display" onclick="this.style.display='none'; this.nextElementSibling.style.display='block';" title="Click to label">
+    <div style="color: var(--text-muted); font-size: 0.85rem;">{{ txn.description }}</div>
+</div>
+<div class="editable-form" style="display: none;">
+    <div style="color: var(--text-muted); font-size: 0.75rem; margin-bottom: 0.2rem;">{{ txn.description }}</div>
+    <form class="inline-form"
+          hx-post="/transaction/{{ txn.id }}/label"
+          hx-target="#label-{{ txn.id | replace('/', '-') }}"
+          hx-swap="innerHTML">
+        <input type="text" name="label" value="" placeholder="Relabel..."
+               style="width: 140px; font-size: 0.75rem; padding: 0.15rem 0.3rem;">
+        <button type="submit" class="btn-sm btn-outline" style="font-size: 0.7rem;">Set</button>
+    </form>
+</div>
+{% endif %}
+{% if txn.note %}
+<div style="color: var(--text-muted); font-size: 0.7rem; font-style: italic;">{{ txn.note }}</div>
+{% endif %}
+{% if match_count is defined and match_count > 0 and txn.label %}
+<div class="apply-rule-hint" id="rule-hint-{{ txn.id | replace('/', '-') }}">
+    {{ match_count }} similar transaction{{ 's' if match_count != 1 }} found.
+    <form style="display: inline;" hx-post="/transaction/{{ txn.id }}/apply-rule"
+          hx-target="#rule-hint-{{ txn.id | replace('/', '-') }}" hx-swap="innerHTML">
+        <input type="hidden" name="pattern" value="{{ pattern }}">
+        <a onclick="this.closest('form').requestSubmit()">Apply to all</a>
+    </form>
+</div>
+{% endif %}

@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from flask import Flask, g, jsonify, redirect, render_template, request, url_for
 
 from db import get_db, init_db
+from rules import apply_all_rules, extract_pattern, find_matching_transactions
 from simplefin import sync_transactions
 
 load_dotenv()
@@ -40,11 +41,15 @@ def index():
     search = request.args.get("q", "").strip()
     show = request.args.get("show", "all")  # all, subscriptions, cancelled
 
+    category_filter = request.args.get("category")
+
     query = """
         SELECT t.*, a.name as account_name,
+               c.name as category_name, c.color as category_color,
                GROUP_CONCAT(tg.name, ', ') as tag_names
         FROM transactions t
         JOIN accounts a ON t.account_id = a.id
+        LEFT JOIN categories c ON t.category_id = c.id
         LEFT JOIN transaction_tags tt ON t.id = tt.transaction_id
         LEFT JOIN tags tg ON tt.tag_id = tg.id
     """
@@ -57,13 +62,18 @@ def index():
     if account_filter:
         conditions.append("t.account_id = ?")
         params.append(account_filter)
+    if category_filter:
+        conditions.append("c.name = ?")
+        params.append(category_filter)
     if search:
-        conditions.append("t.description LIKE ?")
-        params.append(f"%{search}%")
+        conditions.append("(t.description LIKE ? OR t.label LIKE ?)")
+        params.extend([f"%{search}%", f"%{search}%"])
     if show == "subscriptions":
         conditions.append("t.is_subscription = 1")
     elif show == "cancelled":
         conditions.append("t.cancelled = 1")
+    elif show == "unlabeled":
+        conditions.append("t.label IS NULL")
 
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
@@ -74,13 +84,15 @@ def index():
 
     accounts = g.db.execute("SELECT id, name FROM accounts ORDER BY name").fetchall()
     tags = g.db.execute("SELECT id, name, color FROM tags ORDER BY name").fetchall()
+    categories = g.db.execute("SELECT id, name, color FROM categories ORDER BY name").fetchall()
 
     return render_template(
         "index.html",
         transactions=transactions,
         accounts=accounts,
         tags=tags,
-        filters={"tag": tag_filter, "account": account_filter, "q": search, "show": show},
+        categories=categories,
+        filters={"tag": tag_filter, "account": account_filter, "category": category_filter, "q": search, "show": show},
     )
 
 
@@ -250,10 +262,164 @@ def delete_tag(tag_id):
     return redirect(url_for("tags_page"))
 
 
+@app.route("/transaction/<path:txn_id>/label", methods=["POST"])
+def update_label(txn_id):
+    """Set a human-readable label on a transaction."""
+    label = request.form.get("label", "").strip() or None
+    g.db.execute("UPDATE transactions SET label = ? WHERE id = ?", (label, txn_id))
+    g.db.commit()
+
+    txn = g.db.execute("SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
+    pattern = extract_pattern(txn["description"])
+    matches = find_matching_transactions(g.db, pattern, exclude_id=txn_id)
+
+    if request.headers.get("HX-Request"):
+        return render_template("partials/label_form.html", txn=txn, pattern=pattern, match_count=len(matches))
+    return redirect(url_for("index"))
+
+
+@app.route("/transaction/<path:txn_id>/category", methods=["POST"])
+def update_category(txn_id):
+    """Set a category on a transaction."""
+    category_name = request.form.get("category_name", "").strip()
+    category_id = None
+    if category_name:
+        g.db.execute("INSERT OR IGNORE INTO categories (name) VALUES (?)", (category_name,))
+        cat = g.db.execute("SELECT id FROM categories WHERE name = ?", (category_name,)).fetchone()
+        category_id = cat["id"]
+
+    g.db.execute("UPDATE transactions SET category_id = ? WHERE id = ?", (category_id, txn_id))
+    g.db.commit()
+
+    txn = g.db.execute("""
+        SELECT t.*, c.name as category_name, c.color as category_color
+        FROM transactions t
+        LEFT JOIN categories c ON t.category_id = c.id
+        WHERE t.id = ?
+    """, (txn_id,)).fetchone()
+    pattern = extract_pattern(txn["description"])
+    matches = find_matching_transactions(g.db, pattern, exclude_id=txn_id)
+
+    if request.headers.get("HX-Request"):
+        return render_template("partials/category_form.html", txn=txn,
+                               pattern=pattern, match_count=len(matches))
+    return redirect(url_for("index"))
+
+
+@app.route("/transaction/<path:txn_id>/apply-rule", methods=["POST"])
+def apply_rule_from_transaction(txn_id):
+    """Create a rule from this transaction and apply to all similar ones."""
+    txn = g.db.execute("SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
+    pattern = request.form.get("pattern", extract_pattern(txn["description"])).strip()
+    label = txn["label"]
+    category_id = txn["category_id"]
+
+    # Create or update the rule
+    existing = g.db.execute("SELECT id FROM rules WHERE pattern = ?", (pattern,)).fetchone()
+    if existing:
+        g.db.execute("UPDATE rules SET label = ?, category_id = ? WHERE id = ?",
+                     (label, category_id, existing["id"]))
+    else:
+        g.db.execute("INSERT INTO rules (pattern, label, category_id) VALUES (?, ?, ?)",
+                     (pattern, label, category_id))
+
+    # Apply to matching transactions
+    matches = find_matching_transactions(g.db, pattern)
+    for match_id in matches:
+        updates = []
+        params = []
+        if label:
+            updates.append("label = ?")
+            params.append(label)
+        if category_id:
+            updates.append("category_id = ?")
+            params.append(category_id)
+        if updates:
+            params.append(match_id)
+            g.db.execute(f"UPDATE transactions SET {', '.join(updates)} WHERE id = ?", params)
+
+    g.db.commit()
+
+    if request.headers.get("HX-Request"):
+        return f'<span style="color: var(--green); font-size: 0.8rem;">Applied to {len(matches)} transactions</span>'
+    return redirect(url_for("index"))
+
+
+@app.route("/categories")
+def categories_page():
+    """Category management page."""
+    cats = g.db.execute("""
+        SELECT c.*, COUNT(t.id) as txn_count,
+               SUM(CASE WHEN CAST(t.amount AS REAL) < 0 THEN CAST(t.amount AS REAL) ELSE 0 END) as total_spent
+        FROM categories c
+        LEFT JOIN transactions t ON t.category_id = c.id
+        GROUP BY c.id
+        ORDER BY c.name
+    """).fetchall()
+    return render_template("categories.html", categories=cats)
+
+
+@app.route("/categories/create", methods=["POST"])
+def create_category():
+    """Create a new category."""
+    name = request.form.get("name", "").strip()
+    color = request.form.get("color", "#6b7280").strip()
+    if name:
+        g.db.execute("INSERT OR IGNORE INTO categories (name, color) VALUES (?, ?)", (name, color))
+        g.db.commit()
+    return redirect(url_for("categories_page"))
+
+
+@app.route("/categories/<int:cat_id>/color", methods=["POST"])
+def update_category_color(cat_id):
+    """Update a category's color."""
+    color = request.form.get("color", "#6b7280").strip()
+    g.db.execute("UPDATE categories SET color = ? WHERE id = ?", (color, cat_id))
+    g.db.commit()
+    return redirect(url_for("categories_page"))
+
+
+@app.route("/categories/<int:cat_id>/delete", methods=["POST"])
+def delete_category(cat_id):
+    """Delete a category."""
+    g.db.execute("UPDATE transactions SET category_id = NULL WHERE category_id = ?", (cat_id,))
+    g.db.execute("DELETE FROM rules WHERE category_id = ?", (cat_id,))
+    g.db.execute("DELETE FROM categories WHERE id = ?", (cat_id,))
+    g.db.commit()
+    return redirect(url_for("categories_page"))
+
+
+@app.route("/rules")
+def rules_page():
+    """Rules management page."""
+    rules = g.db.execute("""
+        SELECT r.*, c.name as category_name
+        FROM rules r
+        LEFT JOIN categories c ON r.category_id = c.id
+        ORDER BY r.created_at DESC
+    """).fetchall()
+    return render_template("rules.html", rules=rules)
+
+
+@app.route("/rules/<int:rule_id>/delete", methods=["POST"])
+def delete_rule(rule_id):
+    """Delete a rule."""
+    g.db.execute("DELETE FROM rules WHERE id = ?", (rule_id,))
+    g.db.commit()
+    return redirect(url_for("rules_page"))
+
+
+@app.route("/rules/apply-all", methods=["POST"])
+def apply_all():
+    """Re-apply all rules to unlabeled/uncategorized transactions."""
+    count = apply_all_rules(g.db)
+    return redirect(url_for("rules_page"))
+
+
 @app.route("/report")
 def report():
-    """Spending report grouped by tag."""
-    rows = g.db.execute("""
+    """Spending report grouped by tag and category."""
+    by_tag = g.db.execute("""
         SELECT tg.name as tag_name, tg.color,
                COUNT(*) as count,
                SUM(CAST(t.amount AS REAL)) as total
@@ -265,6 +431,17 @@ def report():
         ORDER BY total ASC
     """).fetchall()
 
+    by_category = g.db.execute("""
+        SELECT c.name as category_name, c.color,
+               COUNT(*) as count,
+               SUM(CAST(t.amount AS REAL)) as total
+        FROM transactions t
+        JOIN categories c ON t.category_id = c.id
+        WHERE t.amount < 0
+        GROUP BY c.id
+        ORDER BY total ASC
+    """).fetchall()
+
     untagged = g.db.execute("""
         SELECT COUNT(*) as count, SUM(CAST(t.amount AS REAL)) as total
         FROM transactions t
@@ -272,7 +449,14 @@ def report():
         WHERE tt.transaction_id IS NULL AND t.amount < 0
     """).fetchone()
 
-    return render_template("report.html", rows=rows, untagged=untagged)
+    uncategorized = g.db.execute("""
+        SELECT COUNT(*) as count, SUM(CAST(t.amount AS REAL)) as total
+        FROM transactions t
+        WHERE t.category_id IS NULL AND t.amount < 0
+    """).fetchone()
+
+    return render_template("report.html", by_tag=by_tag, by_category=by_category,
+                           untagged=untagged, uncategorized=uncategorized)
 
 
 def format_date(epoch):

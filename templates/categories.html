@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Categories — Misubank{% endblock %}
+
+{% block content %}
+<h1>Manage Categories</h1>
+
+<div class="card">
+    <h2>Create Category</h2>
+    <form method="post" action="/categories/create" class="filters" style="margin-bottom: 0;">
+        <input type="text" name="name" placeholder="Category name" required>
+        <input type="color" name="color" value="#818cf8" style="padding: 0.2rem; width: 40px; height: 32px;">
+        <button type="submit">Create</button>
+    </form>
+</div>
+
+{% if categories %}
+<div class="card" style="padding: 0;">
+<table>
+    <thead>
+        <tr>
+            <th>Category</th>
+            <th>Color</th>
+            <th>Transactions</th>
+            <th>Total Spent</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for cat in categories %}
+        <tr>
+            <td>
+                <span class="category-badge" style="border-color: {{ cat.color }}; color: {{ cat.color }};">{{ cat.name }}</span>
+            </td>
+            <td>
+                <form method="post" action="/categories/{{ cat.id }}/color" class="inline-form">
+                    <input type="color" name="color" value="{{ cat.color }}"
+                           style="padding: 0.1rem; width: 28px; height: 24px; cursor: pointer;"
+                           onchange="this.form.submit()">
+                </form>
+            </td>
+            <td>{{ cat.txn_count }}</td>
+            <td class="amount-negative">
+                {% if cat.total_spent %}${{ "%.2f" | format(cat.total_spent | abs) }}{% else %}—{% endif %}
+            </td>
+            <td>
+                <a href="/?category={{ cat.name }}" class="btn-sm btn-outline">View</a>
+                <form method="post" action="/categories/{{ cat.id }}/delete" style="display: inline;"
+                      onsubmit="return confirm('Delete category \'{{ cat.name }}\'? Transactions will be uncategorized.')">
+                    <button type="submit" class="btn-sm btn-danger">Delete</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+{% else %}
+<div class="empty-state">
+    <p>No categories yet. Create one above, or assign categories directly on transactions.</p>
+</div>
+{% endif %}
+{% endblock %}

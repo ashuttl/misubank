@@ -2,23 +2,70 @@
 {% block title %}Spending Report — Misubank{% endblock %}
 
 {% block content %}
-<h1>Spending by Tag</h1>
+<h1>Spending Report</h1>
 
-{% if rows %}
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+
+<div>
+<h2>By Category</h2>
+{% if by_category %}
+<div class="card" style="padding: 0;">
+<table>
+    <thead>
+        <tr>
+            <th>Category</th>
+            <th>Count</th>
+            <th>Total Spent</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in by_category %}
+        <tr>
+            <td>
+                <a href="/?category={{ row.category_name }}" style="text-decoration: none;">
+                    <span class="category-badge" style="border-color: {{ row.color }}; color: {{ row.color }};">{{ row.category_name }}</span>
+                </a>
+            </td>
+            <td>{{ row.count }}</td>
+            <td class="amount-negative">${{ "%.2f" | format(row.total | abs) }}</td>
+        </tr>
+        {% endfor %}
+        {% if uncategorized and uncategorized.count %}
+        <tr style="border-top: 2px solid var(--border);">
+            <td style="color: var(--text-muted); font-style: italic;">
+                <a href="/?show=unlabeled" style="color: var(--text-muted);">Uncategorized</a>
+            </td>
+            <td>{{ uncategorized.count }}</td>
+            <td class="amount-negative">${{ "%.2f" | format(uncategorized.total | abs) }}</td>
+        </tr>
+        {% endif %}
+    </tbody>
+</table>
+</div>
+{% else %}
+<div class="card empty-state"><p>No categorized spending yet.</p></div>
+{% endif %}
+</div>
+
+<div>
+<h2>By Tag</h2>
+{% if by_tag %}
 <div class="card" style="padding: 0;">
 <table>
     <thead>
         <tr>
             <th>Tag</th>
-            <th>Transactions</th>
+            <th>Count</th>
             <th>Total Spent</th>
         </tr>
     </thead>
     <tbody>
-        {% for row in rows %}
+        {% for row in by_tag %}
         <tr>
             <td>
-                <span class="tag" style="border-color: {{ row.color }};">{{ row.tag_name }}</span>
+                <a href="/?tag={{ row.tag_name }}" style="text-decoration: none;">
+                    <span class="tag" style="border-color: {{ row.color }};">{{ row.tag_name }}</span>
+                </a>
             </td>
             <td>{{ row.count }}</td>
             <td class="amount-negative">${{ "%.2f" | format(row.total | abs) }}</td>
@@ -35,9 +82,9 @@
 </table>
 </div>
 {% else %}
-<div class="empty-state">
-    <p>No tagged spending data yet.</p>
-    <p style="margin-top: 0.5rem;">Tag your transactions to see spending breakdowns.</p>
-</div>
+<div class="card empty-state"><p>No tagged spending yet.</p></div>
 {% endif %}
+</div>
+
+</div>
 {% endblock %}

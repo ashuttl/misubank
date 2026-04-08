@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 import requests
 
 from db import get_db
+from rules import apply_rules_to_transaction
 
 
 def _parse_access_url(access_url: str):
@@ -90,6 +91,15 @@ def sync_transactions(access_url: str, days_back: int = 30):
                 txn.get("transacted_at"),
             ))
             txns_synced += 1
+
+    # Apply rules to newly synced transactions that don't have labels/categories yet
+    unlabeled = db.execute(
+        "SELECT id, description FROM transactions WHERE label IS NULL AND category_id IS NULL"
+    ).fetchall()
+    rules_applied = 0
+    for txn in unlabeled:
+        if apply_rules_to_transaction(db, txn["id"], txn["description"]):
+            rules_applied += 1
 
     db.commit()
     db.close()

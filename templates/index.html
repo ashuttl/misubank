@@ -6,12 +6,11 @@
 
 <div class="filters">
     <div class="pill-nav">
-        <a href="/?show=all&q={{ filters.q or '' }}&account={{ filters.account or '' }}&tag={{ filters.tag or '' }}"
-           class="{{ 'active' if filters.show == 'all' }}">All</a>
-        <a href="/?show=subscriptions&q={{ filters.q or '' }}&account={{ filters.account or '' }}&tag={{ filters.tag or '' }}"
-           class="{{ 'active' if filters.show == 'subscriptions' }}">Subscriptions</a>
-        <a href="/?show=cancelled&q={{ filters.q or '' }}&account={{ filters.account or '' }}&tag={{ filters.tag or '' }}"
-           class="{{ 'active' if filters.show == 'cancelled' }}">Cancelled</a>
+        {% set qp = 'q=' ~ (filters.q or '') ~ '&account=' ~ (filters.account or '') ~ '&tag=' ~ (filters.tag or '') ~ '&category=' ~ (filters.category or '') %}
+        <a href="/?show=all&{{ qp }}" class="{{ 'active' if filters.show == 'all' }}">All</a>
+        <a href="/?show=unlabeled&{{ qp }}" class="{{ 'active' if filters.show == 'unlabeled' }}">Unlabeled</a>
+        <a href="/?show=subscriptions&{{ qp }}" class="{{ 'active' if filters.show == 'subscriptions' }}">Subscriptions</a>
+        <a href="/?show=cancelled&{{ qp }}" class="{{ 'active' if filters.show == 'cancelled' }}">Cancelled</a>
     </div>
 
     <form method="get" class="filters" style="margin-bottom:0">
@@ -29,8 +28,14 @@
             <option value="{{ tag.name }}" {{ 'selected' if filters.tag == tag.name }}>{{ tag.name }}</option>
             {% endfor %}
         </select>
+        <select name="category">
+            <option value="">All categories</option>
+            {% for cat in categories %}
+            <option value="{{ cat.name }}" {{ 'selected' if filters.category == cat.name }}>{{ cat.name }}</option>
+            {% endfor %}
+        </select>
         <button type="submit" class="btn-sm">Filter</button>
-        {% if filters.q or filters.account or filters.tag or filters.show != 'all' %}
+        {% if filters.q or filters.account or filters.tag or filters.category or filters.show != 'all' %}
         <a href="/" class="btn-sm btn-outline">Clear</a>
         {% endif %}
     </form>
@@ -44,6 +49,7 @@
             <th class="sortable" data-sort="date" data-type="number" style="cursor:pointer;">Date <span class="sort-arrow">▼</span></th>
             <th>Description</th>
             <th class="sortable" data-sort="amount" data-type="number" style="cursor:pointer;">Amount <span class="sort-arrow"></span></th>
+            <th>Category</th>
             <th>Account</th>
             <th>Tags</th>
             <th>Actions</th>
@@ -54,24 +60,17 @@
         <tr id="txn-{{ txn.id | replace('/', '-') }}">
             <td style="white-space: nowrap;" data-sort-value="{{ txn.posted }}">{{ txn.posted | date }}</td>
             <td>
-                {{ txn.description }}
-                {% if txn.is_subscription %}
-                <span class="subscription-badge">subscription</span>
-                {% endif %}
-                {% if txn.cancelled %}
-                <span class="cancelled-badge">cancelled</span>
-                {% endif %}
-                {% if txn.pending %}
-                <span class="tag" style="border-color: var(--yellow);">pending</span>
-                {% endif %}
-                {% if txn.note %}
-                <div style="color: var(--text-muted); font-size: 0.75rem; margin-top: 0.2rem;">
-                    Note: {{ txn.note }}
+                <div id="label-{{ txn.id | replace('/', '-') }}">
+                    {% include "partials/label_form.html" %}
                 </div>
-                {% endif %}
             </td>
             <td class="{{ 'amount-negative' if txn.amount | float < 0 else 'amount-positive' }}" style="white-space: nowrap;" data-sort-value="{{ txn.amount }}">
                 {{ txn.amount | amount }}
+            </td>
+            <td>
+                <div id="cat-{{ txn.id | replace('/', '-') }}">
+                    {% include "partials/category_form.html" %}
+                </div>
             </td>
             <td style="color: var(--text-muted); font-size: 0.8rem;">{{ txn.account_name }}</td>
             <td>
@@ -123,6 +122,11 @@
 <datalist id="taglist">
     {% for tag in tags %}
     <option value="{{ tag.name }}">
+    {% endfor %}
+</datalist>
+<datalist id="categorylist">
+    {% for cat in categories %}
+    <option value="{{ cat.name }}">
     {% endfor %}
 </datalist>
 

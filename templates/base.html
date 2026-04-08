@@ -269,6 +269,37 @@
             gap: 0.25rem;
             align-items: center;
         }
+
+        .category-badge {
+            display: inline-block;
+            padding: 0.1rem 0.5rem;
+            border-radius: 9999px;
+            font-size: 0.7rem;
+            font-weight: 500;
+            border: 1px solid;
+        }
+
+        .apply-rule-hint {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.2rem;
+        }
+
+        .apply-rule-hint a {
+            color: var(--accent);
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        .editable-display {
+            cursor: pointer;
+        }
+
+        .editable-display:hover {
+            outline: 1px dashed var(--border);
+            outline-offset: 2px;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
@@ -277,6 +308,8 @@
         <a href="/" class="{{ 'active' if request.endpoint == 'index' }}">Transactions</a>
         <a href="/savings" class="{{ 'active' if request.endpoint == 'savings' }}">Savings</a>
         <a href="/report" class="{{ 'active' if request.endpoint == 'report' }}">Report</a>
+        <a href="/categories" class="{{ 'active' if request.endpoint == 'categories_page' }}">Categories</a>
+        <a href="/rules" class="{{ 'active' if request.endpoint == 'rules_page' }}">Rules</a>
         <a href="/tags" class="{{ 'active' if request.endpoint == 'tags_page' }}">Tags</a>
         <form action="/sync" method="post" style="margin-left: auto;">
             <button type="submit" class="btn-outline btn-sm">Sync Transactions</button>

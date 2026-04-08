@@ -14,6 +14,16 @@ def get_db():
     return conn
 
 
+def _migrate(conn):
+    """Add columns that may not exist yet on older databases."""
+    # Check existing columns on transactions
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(transactions)").fetchall()}
+    if "label" not in cols:
+        conn.execute("ALTER TABLE transactions ADD COLUMN label TEXT")
+    if "category_id" not in cols:
+        conn.execute("ALTER TABLE transactions ADD COLUMN category_id INTEGER REFERENCES categories(id)")
+
+
 def init_db():
     conn = get_db()
     conn.executescript("""
@@ -45,6 +55,20 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
+        CREATE TABLE IF NOT EXISTS categories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            color TEXT DEFAULT '#6b7280'
+        );
+
+        CREATE TABLE IF NOT EXISTS rules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pattern TEXT NOT NULL,
+            label TEXT,
+            category_id INTEGER REFERENCES categories(id),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
         CREATE TABLE IF NOT EXISTS tags (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
@@ -62,5 +86,7 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_transactions_subscription ON transactions(is_subscription);
         CREATE INDEX IF NOT EXISTS idx_transactions_cancelled ON transactions(cancelled);
     """)
+    _migrate(conn)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category_id)")
     conn.commit()
     conn.close()

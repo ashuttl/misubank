@@ -1,0 +1,46 @@
+{% if txn.category_name is defined and txn.category_name %}
+<div class="editable-display" onclick="this.style.display='none'; this.nextElementSibling.style.display='block';" title="Click to edit">
+    <span class="category-badge" style="border-color: {{ txn.category_color or '#6b7280' }}; color: {{ txn.category_color or '#6b7280' }};">
+        {{ txn.category_name }}
+    </span>
+</div>
+<div class="editable-form" style="display: none;">
+    <form class="inline-form"
+          hx-post="/transaction/{{ txn.id }}/category"
+          hx-target="#cat-{{ txn.id | replace('/', '-') }}"
+          hx-swap="innerHTML">
+        <input type="text" name="category_name"
+               value="{{ txn.category_name }}"
+               style="width: 90px; font-size: 0.7rem; padding: 0.15rem 0.3rem;"
+               list="categorylist">
+        <button type="submit" class="btn-sm btn-outline" style="font-size: 0.7rem;">Set</button>
+    </form>
+</div>
+{% else %}
+<div class="editable-display" onclick="this.style.display='none'; this.nextElementSibling.style.display='block';" title="Click to categorize"
+     style="color: var(--text-muted); font-size: 0.75rem; cursor: pointer; min-width: 50px; min-height: 1.2em;">
+    —
+</div>
+<div class="editable-form" style="display: none;">
+    <form class="inline-form"
+          hx-post="/transaction/{{ txn.id }}/category"
+          hx-target="#cat-{{ txn.id | replace('/', '-') }}"
+          hx-swap="innerHTML">
+        <input type="text" name="category_name"
+               placeholder="+ category"
+               style="width: 90px; font-size: 0.7rem; padding: 0.15rem 0.3rem;"
+               list="categorylist">
+        <button type="submit" class="btn-sm btn-outline" style="font-size: 0.7rem;">Set</button>
+    </form>
+</div>
+{% endif %}
+{% if match_count is defined and match_count > 0 and txn.category_id %}
+<div class="apply-rule-hint" id="cat-rule-{{ txn.id | replace('/', '-') }}">
+    {{ match_count }} similar.
+    <form style="display: inline;" hx-post="/transaction/{{ txn.id }}/apply-rule"
+          hx-target="#cat-rule-{{ txn.id | replace('/', '-') }}" hx-swap="innerHTML">
+        <input type="hidden" name="pattern" value="{{ pattern }}">
+        <a onclick="this.closest('form').requestSubmit()">Apply to all</a>
+    </form>
+</div>
+{% endif %}

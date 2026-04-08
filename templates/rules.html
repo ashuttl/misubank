@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Rules — Misubank{% endblock %}
+
+{% block content %}
+<h1>Auto-labeling Rules</h1>
+
+<p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">
+    Rules automatically label and categorize transactions when their description matches the pattern.
+    They apply to new transactions on sync, and you can re-apply them to existing ones below.
+</p>
+
+<form method="post" action="/rules/apply-all" style="margin-bottom: 1rem;">
+    <button type="submit" class="btn">Re-apply all rules to unlabeled transactions</button>
+</form>
+
+{% if rules %}
+<div class="card" style="padding: 0;">
+<table>
+    <thead>
+        <tr>
+            <th>Pattern (matches against)</th>
+            <th>Label (sets to)</th>
+            <th>Category (sets to)</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for rule in rules %}
+        <tr>
+            <td><code style="background: var(--surface2); padding: 0.1rem 0.4rem; border-radius: 4px;">{{ rule.pattern }}</code></td>
+            <td>{{ rule.label or '—' }}</td>
+            <td>
+                {% if rule.category_name %}
+                <span class="category-badge" style="border-color: var(--accent); color: var(--accent);">{{ rule.category_name }}</span>
+                {% else %}—{% endif %}
+            </td>
+            <td>
+                <form method="post" action="/rules/{{ rule.id }}/delete" style="display: inline;"
+                      onsubmit="return confirm('Delete this rule?')">
+                    <button type="submit" class="btn-sm btn-danger">Delete</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+{% else %}
+<div class="empty-state">
+    <p>No rules yet.</p>
+    <p style="margin-top: 0.5rem;">Label or categorize a transaction, then click "Apply to all" to create a rule.</p>
+</div>
+{% endif %}
+{% endblock %}
